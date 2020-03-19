@@ -1,5 +1,5 @@
 from google_drive_downloader import GoogleDriveDownloader as gdd
-import pymongo
+from pymongo import MongoClient
 import time
 import sys
 import os
@@ -9,26 +9,40 @@ import os
 #the 1st parameter passed in must the path to the
 #games directory
 
-args = sys.argv[1:]
+ROOT = ''
 
-root = args[0]
-if not os.path.exists(root):
-    print("Warning!!! The root path being passed to the updater ")
-    exit(-1)
+def main():
+    args = sys.argv[1:]
+    globals()['ROOT'] = args[0]
 
-def UpdateGames():
+    if not os.path.exists(ROOT):
+        print("Warning!!! The root path being passed to the updater ")
+        exit(-1)
+    if len(args) == 1:
+        while(True):
+            db = ConnectAndReturnDatabase()
+            UpdateGames(db)
+            time.sleep(600)
+    if len(args) > 1:
+        print()
+        UpdateGame(args[1])
+
+def UpdateGames(db):
     #grab records
-    records = []
+    collection = db['games']
+    records = collection.find({})
+    # for record in records:
+    #     print(record)
     for record in records:
-        if record.Inactive:
-            DeleteGame(record)
-        elif IsNewGame(record):
-            DownloadGame(record)
-            MarkAsUpdated(record)
-            print('hello')
-        elif record.shouldUpdate:
+        if record['shouldUpdate']:
             UpdateGame(record)
-            MarkAsUpdated(record)
+            # Mark as updated
+            collection.update_one({'_id': record.get('_id')}, {'$set': {'shouldUpdate': False}})
+        elif not GameIsPresent(record['name']):
+            print("not present")
+        else:
+            DeleteGame(record.name)
+
 def DeleteGame(record):
     #find the game folder
     #delete it
@@ -39,25 +53,24 @@ def UpdateGame(record):
     DownloadGame(record)
 
 def DownloadGame(record):
-    path = os.path.join(root, 'Easy68K.zip')
-
-    gdd.download_file_from_google_drive(file_id='1ePTrCLOmyojyXAD5KlSotBPPCl2ei-GO',
+    # combine the root path with the name of the game and the extension of what we are expecting
+    path = os.path.join(ROOT, record['name'] + '.zip')
+    print(path)
+    #let our package do the hard work and have it unzip our zip and overwrite anything in the way
+    gdd.download_file_from_google_drive(file_id=record['fileId'],
                                         dest_path=path,
                                         unzip=True,
                                         overwrite=True)
 
-def MarkAsUpdated(record):
-    print('Mark as Updated')
+def ConnectAndReturnDatabase():
+    client = MongoClient('mongodb+srv://MOCSArcade2:Hamburger69@cluster0-xczcq.gcp.mongodb.net/MOCSArcade?retryWrites=true&w=majority')
+    return client.MOCSArcade
 
-def IsNewGame(record):
-    print('Hello')
+def GameIsPresent(gameName):
+    for dir in os.listdir(ROOT):
+        if dir == gameName:
+            print(gameName + " found")
+            return True
 
-# if len(args) == 1:
-#     while(True):
-#         time.sleep(600)
-#         UpdateGames()
-# if len(args) > 1:
-#     print()
-#     UpdateGame(args[0])
-
-DownloadGame(0)
+if __name__ == "__main__":
+    main()
